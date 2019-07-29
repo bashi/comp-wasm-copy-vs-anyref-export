@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Wasm Uint8Array read bytes comparison: copy vs anyref</title>
+  <script src="https://www.gstatic.com/charts/loader.js"></script>
+</head>
+
+<body>
+  <div>
+    Use Firefox nightly or Chrome. On Chrome, use <code>--js-flags=--experimental-wasm-anyref</code> flag.
+  </div>
+  <div id="charts"></div>
+  <script>
+    async function start() {
+      const importObject = {
+        env: {
+          readU8FromUint8Array: function (buf, offset) {
+            return buf[offset];
+          }
+        }
+      };
+
+      const buf = await fetch("accumulate.wasm").then(res => res.arrayBuffer());
+      const { instance } = await WebAssembly.instantiate(buf, importObject);
+      window.wasm = instance;
+
+      function accumulateAnyref(arr, length) {
+        return instance.exports.accumulateAnyref(arr, length);
+      }
+
+      function accumulateCopy(arr, length) {
+        const dest = new Uint8Array(instance.exports.memory.buffer);
+        dest.set(arr);
+        return instance.exports.accumulateCopy(0, length);
+      }
+
+      function measure(func, arr) {
+        const before = performance.now();
+        const sum = func(arr, arr.length);
+        const after = performance.now();
+        return after - before;
+      }
+
+      function run(length) {
+        const arr = new Uint8Array(length);
+        for (let i = 0; i < arr.length; i++) {
+          arr[i] = i + 1;
+        }
+        let elapsedCopy = measure(accumulateCopy, arr);
+        let elapsedAnyref = measure(accumulateAnyref, arr);
+        return [`${length}`, elapsedCopy, elapsedAnyref];
+      }
+
+      const results = [
+        ['Array Size', 'copy', 'export']
+      ];
+      const lengths = [1024, 1024 * 1024, 1024 * 1023 * 10];
+      for (let length of lengths) {
+        const result = run(length);
+        results.push(result);
+      }
+
+      drawChart(results);
+    }
+
+    function drawChart(results) {
+      console.table(results);
+      const data = new google.visualization.arrayToDataTable(results);
+      const options = {
+        vAxis: {
+          title: 'Array Size',
+        },
+        hAxis: {
+          title: 'Elapsed time (ms), smaller is better',
+          scaleType: 'log',
+        },
+        bars: 'horizontal'
+      };
+      const chart = new google.visualization.BarChart(document.getElementById('charts'));
+      chart.draw(data, options);
+    }
+
+    google.charts.load('current', { 'packages': ['corechart', 'bar'] });
+    google.charts.setOnLoadCallback(start);
+  </script>
+</body>
+
+</html>
